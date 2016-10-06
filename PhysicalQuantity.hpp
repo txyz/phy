@@ -19,11 +19,10 @@
 #ifndef  PHY_PhysicalQuantity_INC
 #define  PHY_PhysicalQuantity_INC
 
-#include <string>
 #include <iostream>
-#include <sstream>
 #include <stdexcept>
 
+#include "Streamable.hpp"
 #include "PhysicalUnit.h"
 
 namespace phy {
