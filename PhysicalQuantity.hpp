@@ -27,44 +27,42 @@
 #include "PhysicalUnit.h"
 
 namespace phy {
-
+  
 /*
  * =====================================================================================
  *        Class:  PhysicalQuantity
  *  Description:  
  * =====================================================================================
  */
-template <typename T>
-class PhysicalQuantity
+class PhysicalQuantity : public Streamable
 {
   public:
     /* ====================  LIFECYCLE     ======================================= */
-    PhysicalQuantity (T value, const std::string &unit="")
-        : m_value(value), m_unit(unit)
+    PhysicalQuantity (double value,
+                      const std::string &unit="",
+                      const std::string &system=PhysicalUnit::SYSTEM_MKS)
+        : m_value(value), m_unit(unit, system)
     {
     }                                           /* constructor      */
 
     PhysicalQuantity (const PhysicalQuantity &other)
-        : m_value(other.m_value),
-        m_unit(other.m_unit)
+        : m_value(other.m_value), m_unit(other.m_unit)
     {
     }                                           /* copy constructor */
 
     ~PhysicalQuantity () {};                    /* destructor       */
 
     /* ====================  ACCESSORS     ======================================= */
-    T GetValue() const {return m_value;}
-    std::string GetUnit() const {return m_unit.GetName();}
-    T GetValue(const PhysicalUnit &unit) const {
+    double GetValue() const { return m_value * m_unit.GetScale(); }
+    std::string GetUnit() const { return m_unit.GetName(); }
 
-        if (m_unit.GetName() == unit.GetName()) return m_value;
-
-        if (m_unit.GetBaseName() != unit.GetBaseName()) {
+    double GetValue(const PhysicalUnit &unit) const {
+        if (m_unit.GetName() != unit.GetName()) {
             std::stringstream ss;
             ss << "Can not convert '" << m_unit.GetName() << "' to '" << unit.GetName() << "'";
             throw std::invalid_argument(ss.str());
         }
-        return m_value * m_unit.GetScale() / unit.GetScale();
+        return GetValue() / unit.GetScale();
     }
 
     /* ====================  MUTATORS      ======================================= */
@@ -99,6 +97,13 @@ class PhysicalQuantity
         return *this;
     }                                           /* assignment operator */
 
+    /* ====================  METHODS       ======================================= */
+    std::string ToString() const {
+        std::stringstream ss;
+        ss << GetValue() << " " << GetUnit();
+        return ss.str();
+    }
+
   protected:
     /* ====================  METHODS       ======================================= */
 
@@ -108,17 +113,10 @@ class PhysicalQuantity
     /* ====================  METHODS       ======================================= */
 
     /* ====================  DATA MEMBERS  ======================================= */
-    T                   m_value;
-    PhysicalUnit        m_unit;
+    double                                                      m_value;
+    PhysicalUnit                                                m_unit;
 
 }; /* -----  end of class PhysicalQuantity  ----- */
-
-template <typename T>
-std::ostream& operator << (std::ostream &os, const PhysicalQuantity<T> &obj)
-{
-    os << obj.GetValue() << " " << obj.GetUnit();
-    return os;
-}       /* -----  end of function operator <<  ----- */
 
 }       /* -----  end of namespace phy  ----- */
 
