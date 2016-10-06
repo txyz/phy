@@ -10,7 +10,7 @@
  *       Revision:  none
  *       Compiler:  gcc
  *
- *         Author:  Hongwei Yang (yhw1630), yhw1630@gmail.com
+ *         Author:  Hongwei Yang (yhw1630), yhw163@gmail.com
  *   Organization:  
  *
  * =====================================================================================
@@ -25,48 +25,14 @@
 #include <sstream>
 #include <vector>
 
+#include "Utilities.h"
+
 namespace phy {
 
 std::map<std::string, std::map<std::string, std::pair<double, std::string> > > PhysicalUnit::m_baseUnitDict;
-
-std::vector<std::string> split(const std::string &s, char delim) {
-    std::stringstream ss(s);
-    std::string item;
-    std::vector<std::string> tokens;
-    while (getline(ss, item, delim)) {
-        tokens.push_back(item);
-    }
-    return tokens;
-}
-
-// trim from left
-std::string& ltrim(std::string &s, char c=0) {
-    if (c) {
-        size_t npos = s.find_first_not_of(c);
-        s.erase(0, npos);
-    } else {
-        s.erase(s.begin(),
-                std::find_if(s.begin(),
-                             s.end(),
-                             std::not1(std::ptr_fun<int, int>(std::isspace))));
-    }
-    return s;
-}
-
-// trim from right
-std::string &rtrim(std::string &s, char c=0) {
-    if (c) {
-        size_t npos = s.find_last_not_of(c);
-        s.erase(npos);
-    } else {
-        s.erase(std::find_if(s.rbegin(), s.rend(), std::not1(std::ptr_fun<int, int>(std::isspace))).base(),
-                s.end());
-    }
-    return s;
-}
-
-// trim from both
-std::string& trim(std::string &s, char c=0) {return ltrim(rtrim(s, c), c);}
+const std::string PhysicalUnit::SYSTEM_MKS("mks");        // metre-kilogram-second system
+const std::string PhysicalUnit::SYSTEM_CGS("cgs");        // centimetre-gram-second system
+const std::string PhysicalUnit::SYSTEM_MTS("mts");        // metre-tonne-second system
 
 /*
  *--------------------------------------------------------------------------------------
@@ -77,29 +43,38 @@ std::string& trim(std::string &s, char c=0) {return ltrim(rtrim(s, c), c);}
  */
 PhysicalUnit::PhysicalUnit (const std::string &name, const std::string &system)
 {
-    InitBaseUnitDict();
+    InitPhysicalUnitDict();
     if (m_baseUnitDict.find(system) == m_baseUnitDict.end()) {
         std::stringstream ss;
         ss << "Unknown system of measure: " << system;
         throw std::invalid_argument(ss.str());
+    } 
+
+    if (system == SYSTEM_MKS) {
+        m_unitDict["m"] = 0;
+        m_unitDict["kg"] = 0;
+        m_unitDict["s"] = 0;
+        m_unitDict["A"] = 0;
+        m_unitDict["K"] = 0;
+        m_unitDict["mol"] = 0;
+        m_unitDict["cd"] = 0;
+    } else {
+        std::stringstream ss;
+        ss << system << " system not supported yet";
+        throw std::runtime_error(ss.str());
     }
 
-    m_system = system;
-
-    std::map<std::string, std::pair<double, std::string> > &unitDict = m_baseUnitDict[system];
-
     // Composite unit parser, currently support '*', '/', '^', do not support '(', ')'
-    std::map<std::string, std::pair<double, std::string> >::iterator it;
-    double scale;
+    m_scale = 1;
     std::string unitName, baseName;
     // '*' first
-    std::vector<std::string> splitted1 = split(name, '*');
+    std::vector<std::string> splitted1 = utl::split(name, '*');
     std::vector<std::string>::iterator it1;
     bool isDenominator;
     for (it1 = splitted1.begin(); it1 != splitted1.end(); ++it1) {
         isDenominator = false;
         // Now '/'
-        trim(*it1);
+        utl::trim(*it1);
         if (it1->empty()) {
             // Two '*' separated by empty space
             std::stringstream ss;
@@ -112,11 +87,11 @@ PhysicalUnit::PhysicalUnit (const std::string &name, const std::string &system)
             ss << "Invalid format near: " << *it1;
             throw std::invalid_argument(ss.str());
         }
-        std::vector<std::string> splitted2 = split(*it1, '/');
+        std::vector<std::string> splitted2 = utl::split(*it1, '/');
         std::vector<std::string>::iterator it2;
         for (it2 = splitted2.begin(); it2 != splitted2.end(); ++it2) {
-            trim(*it2);
-            std::vector<std::string> splitted3 = split(*it2, '^');
+            utl::trim(*it2);
+            std::vector<std::string> splitted3 = utl::split(*it2, '^');
             int order = 0;
             if (splitted3.empty()) {
                 // Two '/' separated by empty space
@@ -137,28 +112,36 @@ PhysicalUnit::PhysicalUnit (const std::string &name, const std::string &system)
                     throw std::invalid_argument(ss.str());
             }
             if (order != 0) {
-                if (isDenominator) order = -order;
-                unitName = splitted3[0];
-                it = unitDict.find(unitName);
-                if (it == unitDict.end()) {
+                std::string unitName = splitted3[0];
+                if (m_baseUnitDict[system].find(unitName) == m_baseUnitDict[system].end()) {
                     std::stringstream ss;
-                    ss << "Unknown unit: " << unitName;
+                    ss << "Unknown unit: " << name;
                     throw std::invalid_argument(ss.str());
                 }
-                scale = it->second.first;
-                baseName = it->second.second;
-                if (m_nameDict.find(unitName) != m_nameDict.end()) {
-                    m_nameDict[unitName] += order;
+
+                std::pair<double, std::string> info = m_baseUnitDict[system][unitName];
+                baseName = info.second;
+
+                if (m_unitDict.find(baseName) != m_unitDict.end()) {
+                    m_unitDict[baseName] = 0;
+                }
+
+                if (isDenominator) {
+                    m_unitDict[baseName] -= order;
+                    m_scale /= info.first;
                 } else {
-                    m_nameDict[unitName] = order;
+                    m_unitDict[baseName] += order;
+                    m_scale *= info.first;
                 }
             }
             // Only after first element, it becomes denominator
             isDenominator = true;
         }
+
     }
 
-    //"um", "mm", "cm", "m", "km"}
+    m_system = system;
+
 }  /* -----  end of method PhysicalUnit::PhysicalUnit  (constructor)  ----- */
 
 /*
@@ -170,7 +153,8 @@ PhysicalUnit::PhysicalUnit (const std::string &name, const std::string &system)
  */
 PhysicalUnit::PhysicalUnit (const PhysicalUnit &other):
     m_system(other.m_system),
-    m_nameDict(other.m_nameDict)
+    m_scale(other.m_scale),
+    m_unitDict(other.m_unitDict)
 {
 }  /* -----  end of method PhysicalUnit::PhysicalUnit  (copy constructor)  ----- */
 
@@ -197,61 +181,43 @@ PhysicalUnit::operator = (const PhysicalUnit &other)
 {
     if (this != &other) {
         m_system = other.m_system;
-        m_nameDict = other.m_nameDict;
+        m_scale = other.m_scale;
+        m_unitDict = other.m_unitDict;
     }
     return *this;
 }  /* -----  end of method PhysicalUnit::operator =  (assignment operator)  ----- */
 
-void PhysicalUnit::InitBaseUnitDict ()
+void PhysicalUnit::InitPhysicalUnitDict ()
 {
     if (!m_baseUnitDict.empty()) return;
 
-    m_baseUnitDict["SI"]["nm"] = std::pair<double, std::string>(1e-9, "m");
-    m_baseUnitDict["SI"]["um"] = std::pair<double, std::string>(1e-6, "m");
-    m_baseUnitDict["SI"]["mm"] = std::pair<double, std::string>(1e-3, "m");
-    m_baseUnitDict["SI"]["cm"] = std::pair<double, std::string>(1e-2, "m");
-    m_baseUnitDict["SI"]["m"] = std::pair<double, std::string>(1, "m");
-    m_baseUnitDict["SI"][""] = std::pair<double, std::string>(1, "1");
+    m_baseUnitDict[SYSTEM_MKS]["nm"] = std::pair<double, std::string>(1e-9, "m");
+    m_baseUnitDict[SYSTEM_MKS]["um"] = std::pair<double, std::string>(1e-6, "m");
+    m_baseUnitDict[SYSTEM_MKS]["mm"] = std::pair<double, std::string>(1e-3, "m");
+    m_baseUnitDict[SYSTEM_MKS]["cm"] = std::pair<double, std::string>(1e-2, "m");
+    m_baseUnitDict[SYSTEM_MKS]["m"] = std::pair<double, std::string>(1, "m");
+    m_baseUnitDict[SYSTEM_MKS][""] = std::pair<double, std::string>(1, "1");
 
     return ;
-}       /* -----  end of method PhysicalUnit::InitBaseUnitDict  ----- */
+}       /* -----  end of method PhysicalUnit::InitPhysicalUnitDict  ----- */
+
 
 std::string PhysicalUnit::GetName () const
 {
     std::stringstream ss;
     std::map<std::string, int>::const_iterator it;
-    for (it = m_nameDict.begin(); it != m_nameDict.end(); ++it) {
-        if (it != m_nameDict.begin()) {
-            ss << " * ";
-        }
+    bool isFirst = true;
+    for (it = m_unitDict.begin(); it != m_unitDict.end(); ++it) {
+        if (it->second == 0) continue;
+
+        if (!isFirst) ss << " * ";
+
         ss << it->first;
         if (it->second != 1) ss << "^" << it->second;
+
+        if (isFirst) isFirst = false;
     }
     return ss.str();
 }       /* -----  end of method PhysicalUnit::GetName  ----- */
-
-std::string PhysicalUnit::GetBaseName () const
-{
-    std::stringstream ss;
-    std::map<std::string, int>::const_iterator it;
-    for (it = m_nameDict.begin(); it != m_nameDict.end(); ++it) {
-        if (it != m_nameDict.begin()) {
-            ss << " * ";
-        }
-        ss << m_baseUnitDict[m_system].find(it->first)->second.second;
-        if (it->second != 1) ss << "^" << it->second;
-    }
-    return ss.str();
-}       /* -----  end of method PhysicalUnit::GetBaseName  ----- */
-
-double PhysicalUnit::GetScale () const
-{
-    double scale = 1;
-    std::map<std::string, int>::const_iterator it;
-    for (it = m_nameDict.begin(); it != m_nameDict.end(); ++it) {
-        scale *= pow(m_baseUnitDict[m_system].find(it->first)->second.first, it->second);
-    }
-    return scale;
-}       /* -----  end of method PhysicalUnit::GetScale  ----- */
 
 }       /* -----  end of namespace phy  ----- */
